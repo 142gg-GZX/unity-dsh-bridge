@@ -19,11 +19,11 @@ DSH(agent)  ←HTTP JSON 127.0.0.1:8790→  Unity Editor 插件(DshBridge.cs)
 ### A. 作为 DSH 插件安装(推荐)
 
 ```bash
-# 本地目录
-dsh plugin --profile desktop add <本仓库路径>
+# 直接从 GitHub 安装
+dsh plugin --profile desktop add github:142gg-GZX/unity-dsh-bridge
 
-# 或发布到 GitHub/npm 后
-dsh plugin --profile desktop add <github:user/unity-dsh-bridge 或 npm 包名>
+# 或本地目录
+dsh plugin --profile desktop add <本仓库路径>
 ```
 
 装完重启 DSH,技能 `unity-dsh-bridge` 即出现在技能目录。
