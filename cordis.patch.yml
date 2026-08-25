@@ -1,0 +1,4 @@
+# unity-dsh-bridge bundle patch: insert the skill provider plugin row.
+- insert:
+    - id: skill-unity-dsh-bridge
+      name: 'dsh-skill-unity-bridge'
