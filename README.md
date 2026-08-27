@@ -1,3 +1,5 @@
+[![DSH Market 收录徽章](https://raw.githubusercontent.com/2BingLing/dsh-market/master/assets/readme/badge-listed-zh.svg)](https://dsh.market/?q=142gg-GZX%2Funity-dsh-bridge)
+
 # unity-dsh-bridge
 
 让 DeepSeek Harness(DSH)直接控制 Unity / 团结引擎(Tuanjie)编辑器:搭场景、写 C# 脚本、编译排错、进 Play Mode、截图、模拟输入,实现"边看效果边调试"的闭环。
