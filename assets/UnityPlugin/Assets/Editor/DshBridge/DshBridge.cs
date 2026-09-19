@@ -7,6 +7,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Net;
@@ -41,6 +42,11 @@ namespace DshBridge
         static string _logFile;
         static string _taskStatus = "";
         static double _taskUpdated = 0;
+        static readonly Stopwatch Watch = Stopwatch.StartNew();
+        static volatile long _lastMainTickMs;
+        static volatile bool _cachedPlaying;
+        static volatile bool _cachedChanging;
+        static volatile bool _cachedCompiling;
 
         class PendingRequest { public string Raw; public bool IsPing; public bool IsStatus; public Action<string> Respond; }
         class LogEntry { public string Message; public string Stack; public string Type; public double Time; }
@@ -202,7 +208,7 @@ namespace DshBridge
                     string contentType = "application/json; charset=utf-8";
                     if (method == "GET" && url.StartsWith("/ping"))
                     {
-                        respBody = Encoding.UTF8.GetBytes(DispatchPing());
+                        respBody = Encoding.UTF8.GetBytes(WorkerPing());
                     }
                     else if (method == "GET" && (url == "/" || url.StartsWith("/?")))
                     {
@@ -211,7 +217,7 @@ namespace DshBridge
                     }
                     else if (method == "GET" && url.StartsWith("/status"))
                     {
-                        respBody = Encoding.UTF8.GetBytes(DispatchStatus());
+                        respBody = Encoding.UTF8.GetBytes(WorkerStatus());
                     }
                     else if (method == "GET" && url.StartsWith("/shot/latest"))
                     {
@@ -478,8 +484,83 @@ setInterval(tick, 1500);
             return info;
         }
 
+        static string WorkerPing()
+        {
+            bool stalled = Watch.ElapsedMilliseconds - _lastMainTickMs > 3000;
+            return Json.Serialize(new Dictionary<string, object>
+            {
+                { "ok", true },
+                { "server", "DshBridge v0.1" },
+                { "unity", Application.unityVersion },
+                { "project", _projectPath },
+                { "playing", _cachedPlaying },
+                { "changing", _cachedChanging },
+                { "compiling", _cachedCompiling },
+                { "busy", stalled || _cachedChanging || _cachedCompiling },
+                { "mainThreadStalled", stalled },
+            });
+        }
+
+        static string WorkerStatus()
+        {
+            bool stalled = Watch.ElapsedMilliseconds - _lastMainTickMs > 3000;
+            Dictionary<string, object> info = new Dictionary<string, object>
+            {
+                { "ok", true },
+                { "server", "DshBridge v0.1" },
+                { "unity", Application.unityVersion },
+                { "project", _projectPath },
+                { "playing", _cachedPlaying },
+                { "changing", _cachedChanging },
+                { "compiling", _cachedCompiling },
+                { "busy", stalled || _cachedChanging || _cachedCompiling },
+                { "mainThreadStalled", stalled },
+            };
+            if (string.IsNullOrEmpty(_taskStatus))
+            {
+                try
+                {
+                    string tf = Path.Combine(_projectPath, "Temp", "DshBridge", "task.txt");
+                    if (File.Exists(tf)) _taskStatus = File.ReadAllText(tf);
+                }
+                catch { }
+            }
+            info["task"] = _taskStatus;
+            info["taskUpdated"] = _taskUpdated;
+            List<object> logs = new List<object>();
+            lock (LogLock)
+            {
+                int start = Math.Max(0, Logs.Count - 25);
+                for (int i = start; i < Logs.Count; i++)
+                {
+                    LogEntry e = Logs[i];
+                    logs.Add(new Dictionary<string, object> { { "type", e.Type }, { "message", e.Message }, { "time", e.Time } });
+                }
+            }
+            info["logs"] = logs;
+            string shot = "";
+            try
+            {
+                string dir = Path.Combine(_projectPath, "Temp", "DshBridge");
+                if (Directory.Exists(dir))
+                {
+                    string[] files = Directory.GetFiles(dir, "shot_*.png");
+                    if (files.Length > 0)
+                    {
+                        Array.Sort(files);
+                        shot = "Temp/DshBridge/" + Path.GetFileName(files[files.Length - 1]);
+                    }
+                }
+            }
+            catch { }
+            info["screenshot"] = shot;
+            return Json.Serialize(info);
+        }
+
         static string DispatchOnMainThread(string body)
         {
+            if (Watch.ElapsedMilliseconds - _lastMainTickMs > 5000)
+                return "{\"ok\":false,\"error\":\"editor main thread stalled (window minimized/backgrounded?)\"}";
             ManualResetEventSlim done = new ManualResetEventSlim(false);
             string result = null;
             lock (QueueLock) { Pending.Enqueue(new PendingRequest { Raw = body, Respond = r => { result = r; done.Set(); } }); }
@@ -510,6 +591,10 @@ setInterval(tick, 1500);
 
         static void Update()
         {
+            _cachedPlaying = EditorApplication.isPlaying;
+            _cachedChanging = EditorApplication.isPlayingOrWillChangePlaymode;
+            _cachedCompiling = EditorApplication.isCompiling;
+            _lastMainTickMs = Watch.ElapsedMilliseconds;
             List<PendingRequest> batch = null;
             lock (QueueLock)
             {
